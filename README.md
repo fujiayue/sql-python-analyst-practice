@@ -20,6 +20,12 @@ http://127.0.0.1:5173
 
 如果是第一次运行，它会自动安装本地依赖，可能需要几分钟。
 
+如果想在桌面生成带自定义图标的快捷方式：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\create-desktop-shortcut.ps1
+```
+
 > 说明：仓库里也有 `scripts/build-launcher.ps1` 可以构建 exe 启动器，但当前机器的 Windows 应用控制策略会拦截本地生成的未签名 exe。所以默认使用 `start-trainer.cmd`，双击体验更稳定。
 
 ## 功能
