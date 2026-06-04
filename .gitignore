@@ -1,0 +1,13 @@
+.venv/
+node_modules/
+frontend/dist/
+launcher/build/
+launcher/*.spec
+backend/.local/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.db
+*.sqlite
+.DS_Store
