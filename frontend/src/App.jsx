@@ -12,6 +12,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  ScrollText,
   X,
 } from "lucide-react";
 import { api } from "./api";
@@ -142,6 +143,24 @@ function FeedbackDrawer({ open, result, conclusionResult, onClose }) {
           <span>{conclusionResult.feedback}</span>
           <small>{conclusionResult.hint}</small>
         </div>
+      )}
+    </Drawer>
+  );
+}
+
+function AnswerDrawer({ open, taskDetail, onClose }) {
+  return (
+    <Drawer open={open} title="参考答案" onClose={onClose}>
+      {!taskDetail ? (
+        <div className="emptyState">进入题目后可以查看参考答案。</div>
+      ) : (
+        <>
+          <div className="answerNotice">
+            <strong>{taskDetail.task.title}</strong>
+            <span>建议先自己提交一次，再查看参考答案对照口径和写法。</span>
+          </div>
+          <pre className="answerCode">{taskDetail.solution}</pre>
+        </>
       )}
     </Drawer>
   );
@@ -318,6 +337,7 @@ function PracticeView({
   onRun,
   onBack,
   onOpenFeedback,
+  onOpenAnswer,
   onSubmitConclusion,
 }) {
   if (!taskDetail) {
@@ -402,6 +422,9 @@ function PracticeView({
               <h2>{task.mode === "sql" ? "SQL 编辑区" : "Python solve(df)"}</h2>
             </div>
             <div className="workActions">
+              <button className="ghostButton" onClick={onOpenAnswer}>
+                <ScrollText size={16} /> 参考答案
+              </button>
               <button className="ghostButton" onClick={onOpenFeedback} disabled={!hasFeedback}>
                 <FileWarning size={16} /> 反馈
               </button>
@@ -453,6 +476,7 @@ function App() {
   const [notes, setNotes] = useState([]);
   const [wrongNotesOpen, setWrongNotesOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [answerOpen, setAnswerOpen] = useState(false);
   const [activeInfoTab, setActiveInfoTab] = useState("data");
 
   const currentTaskMeta = useMemo(() => {
@@ -486,6 +510,7 @@ function App() {
     setConclusion("");
     setConclusionResult(null);
     setFeedbackOpen(false);
+    setAnswerOpen(false);
     setActiveInfoTab("data");
     const payload = await api.getTask(taskId);
     setTaskDetail(payload);
@@ -526,6 +551,7 @@ function App() {
     setSelectedTaskId(null);
     setRunState({ loading: false, result: null, error: null });
     setFeedbackOpen(false);
+    setAnswerOpen(false);
   }
 
   return (
@@ -543,9 +569,14 @@ function App() {
             错题本 {summary.wrong_note_count > 0 ? summary.wrong_note_count : ""}
           </button>
           {view === "practice" && (
-            <button className="navButton" onClick={() => setFeedbackOpen(true)}>
-              反馈
-            </button>
+            <>
+              <button className="navButton" onClick={() => setAnswerOpen(true)}>
+                参考答案
+              </button>
+              <button className="navButton" onClick={() => setFeedbackOpen(true)}>
+                反馈
+              </button>
+            </>
           )}
         </nav>
       </header>
@@ -572,6 +603,7 @@ function App() {
           onRun={runCode}
           onBack={backToLibrary}
           onOpenFeedback={() => setFeedbackOpen(true)}
+          onOpenAnswer={() => setAnswerOpen(true)}
           onSubmitConclusion={submitConclusion}
         />
       )}
@@ -589,6 +621,7 @@ function App() {
         conclusionResult={conclusionResult}
         onClose={() => setFeedbackOpen(false)}
       />
+      <AnswerDrawer open={answerOpen} taskDetail={taskDetail} onClose={() => setAnswerOpen(false)} />
     </div>
   );
 }

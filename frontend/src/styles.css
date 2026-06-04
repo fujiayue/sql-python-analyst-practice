@@ -806,6 +806,41 @@ tr:last-child td {
   line-height: 1.5;
 }
 
+.answerNotice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px;
+  color: #4f3b13;
+  background: #fff8e8;
+  border: 1px solid #e2c781;
+  border-radius: 8px;
+}
+
+.answerNotice span {
+  color: #6c5a33;
+  line-height: 1.5;
+}
+
+.answerCode {
+  margin: 14px 0 0;
+  padding: 14px;
+  overflow: auto;
+  color: #111827;
+  background: #f7fafc;
+  border: 1px solid #d8e2eb;
+  border-radius: 8px;
+  font-family:
+    "Cascadia Code",
+    Consolas,
+    "Courier New",
+    monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
 .noteList {
   display: flex;
   flex-direction: column;
