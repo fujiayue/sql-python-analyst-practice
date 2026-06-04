@@ -806,6 +806,34 @@ tr:last-child td {
   line-height: 1.5;
 }
 
+.feedbackChecklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.checkItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.checkItem.good {
+  color: #1f704e;
+  background: #dff2e7;
+}
+
+.checkItem.missing {
+  color: #8a2d38;
+  background: #ffe1e5;
+}
+
 .answerNotice {
   display: flex;
   flex-direction: column;

@@ -120,8 +120,8 @@ function WrongNotesDrawer({ open, notes, onClose, onRefresh, onReviewed }) {
 function FeedbackDrawer({ open, result, conclusionResult, onClose }) {
   const output = result?.result || emptyResult;
   return (
-    <Drawer open={open} title="运行反馈" onClose={onClose}>
-      {!result && !conclusionResult && <div className="emptyState">运行后这里会显示反馈。</div>}
+    <Drawer open={open} title="运行与结论反馈" onClose={onClose}>
+      {!result && !conclusionResult && <div className="emptyState">运行代码或检查业务结论后，这里会显示反馈。</div>}
       {result && (
         <div className={result.passed ? "feedbackBox good" : "feedbackBox bad"}>
           <strong>{result.passed ? "通过" : "未通过"}</strong>
@@ -142,6 +142,18 @@ function FeedbackDrawer({ open, result, conclusionResult, onClose }) {
           </strong>
           <span>{conclusionResult.feedback}</span>
           <small>{conclusionResult.hint}</small>
+          <div className="feedbackChecklist">
+            {(conclusionResult.passed_items || []).map((item) => (
+              <span className="checkItem good" key={`passed-${item}`}>
+                <CheckCircle2 size={14} /> {item}
+              </span>
+            ))}
+            {(conclusionResult.missing_items || []).map((item) => (
+              <span className="checkItem missing" key={`missing-${item}`}>
+                <AlertCircle size={14} /> 缺少：{item}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </Drawer>
@@ -334,6 +346,7 @@ function PracticeView({
   activeInfoTab,
   setActiveInfoTab,
   runState,
+  conclusionResult,
   onRun,
   onBack,
   onOpenFeedback,
@@ -349,7 +362,8 @@ function PracticeView({
     { id: "fields", label: "字段结构", icon: Database },
     { id: "brief", label: "题目要求", icon: BookOpenCheck },
   ];
-  const hasFeedback = Boolean(runState.result);
+  const hasFeedback = Boolean(runState.result || runState.error || conclusionResult);
+  const feedbackPassed = runState.result ? runState.result.passed : Boolean(conclusionResult?.passed);
 
   return (
     <main className="practicePage">
@@ -375,9 +389,9 @@ function PracticeView({
           {task.mysql_tip && <small>{task.mysql_tip}</small>}
         </div>
         {hasFeedback && (
-          <button className={runState.result.passed ? "feedbackEntry good" : "feedbackEntry bad"} onClick={onOpenFeedback}>
-            {runState.result.passed ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
-            查看反馈
+          <button className={feedbackPassed ? "feedbackEntry good" : "feedbackEntry bad"} onClick={onOpenFeedback}>
+            {feedbackPassed ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
+            查看运行/结论反馈
           </button>
         )}
       </section>
@@ -408,7 +422,8 @@ function PracticeView({
                 <ul>
                   <li>输出列名和顺序要与题目要求一致。</li>
                   <li>可以使用不同写法，只要结果口径正确即可。</li>
-                  <li>运行后可在反馈入口查看结果表和提示。</li>
+                  <li>业务结论按发现、原因假设、建议动作、关键指标四项检查。</li>
+                  <li>运行代码或检查结论后，可在反馈入口查看结果表和提示。</li>
                 </ul>
               </div>
             )}
@@ -426,7 +441,7 @@ function PracticeView({
                 <ScrollText size={16} /> 参考答案
               </button>
               <button className="ghostButton" onClick={onOpenFeedback} disabled={!hasFeedback}>
-                <FileWarning size={16} /> 反馈
+                <FileWarning size={16} /> 运行/结论反馈
               </button>
               <button className="primaryButton" onClick={onRun} disabled={runState.loading}>
                 <Play size={17} /> {runState.loading ? "运行中" : "运行评分"}
@@ -446,7 +461,7 @@ function PracticeView({
                 <h3>业务结论</h3>
               </div>
               <button className="secondaryButton" onClick={onSubmitConclusion}>
-                检查结论
+                检查并查看反馈
               </button>
             </div>
             <textarea
@@ -597,6 +612,7 @@ function App() {
           setCode={setCode}
           conclusion={conclusion}
           setConclusion={setConclusion}
+          conclusionResult={conclusionResult}
           activeInfoTab={activeInfoTab}
           setActiveInfoTab={setActiveInfoTab}
           runState={runState}
