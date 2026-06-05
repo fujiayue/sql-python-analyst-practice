@@ -18,6 +18,17 @@ import {
 import { api } from "./api";
 
 const emptyResult = { columns: [], rows: [] };
+const tierLabels = {
+  sprint: "冲刺",
+  core: "核心",
+  drill: "加练",
+};
+
+function matchesScope(task, scope) {
+  if (scope === "all") return true;
+  if (scope === "recommended") return task.tier === "sprint" || task.tier === "core";
+  return task.tier === scope;
+}
 
 function DataTable({ columns = [], rows = [], compact = false }) {
   if (!columns.length || !rows.length) {
@@ -180,22 +191,35 @@ function AnswerDrawer({ open, taskDetail, onClose }) {
 
 function LibraryView({ days, summary, selectedDay, setSelectedDay, onEnterTask }) {
   const [query, setQuery] = useState("");
+  const [scopeFilter, setScopeFilter] = useState("recommended");
   const [statusFilter, setStatusFilter] = useState("all");
   const selected = days.find((day) => day.day === selectedDay) || days[0];
-  const statusCounts = useMemo(() => {
+  const tierCounts = useMemo(() => {
     const base = selected?.tasks || [];
+    return {
+      recommended: base.filter((task) => task.tier === "sprint" || task.tier === "core").length,
+      sprint: base.filter((task) => task.tier === "sprint").length,
+      core: base.filter((task) => task.tier === "core").length,
+      drill: base.filter((task) => task.tier === "drill").length,
+      all: base.length,
+    };
+  }, [selected]);
+  const statusCounts = useMemo(() => {
+    const base = (selected?.tasks || []).filter((task) => matchesScope(task, scopeFilter));
     return {
       all: base.length,
       todo: base.filter((task) => !task.passed && !task.attempts).length,
       passed: base.filter((task) => task.passed).length,
       wrong: base.filter((task) => !task.passed && task.attempts > 0).length,
     };
-  }, [selected]);
+  }, [scopeFilter, selected]);
   const tasks = useMemo(() => {
-    const base = selected?.tasks || [];
+    const base = (selected?.tasks || []).filter((task) => matchesScope(task, scopeFilter));
     const keyword = query.trim().toLowerCase();
     return base.filter((task) => {
-      const matchesQuery = !keyword || `${task.title} ${task.mode}`.toLowerCase().includes(keyword);
+      const matchesQuery =
+        !keyword ||
+        `${task.title} ${task.mode} ${task.difficulty} ${(task.tags || []).join(" ")}`.toLowerCase().includes(keyword);
       const matchesStatus =
         statusFilter === "all" ||
         (statusFilter === "todo" && !task.passed && !task.attempts) ||
@@ -203,24 +227,24 @@ function LibraryView({ days, summary, selectedDay, setSelectedDay, onEnterTask }
         (statusFilter === "wrong" && !task.passed && task.attempts > 0);
       return matchesQuery && matchesStatus;
     });
-  }, [query, selected, statusFilter]);
+  }, [query, scopeFilter, selected, statusFilter]);
 
   return (
     <main className="libraryPage">
       <section className="libraryHero">
         <div>
           <span className="eyebrow">Practice Library</span>
-          <h1>选择一题进入练习</h1>
-          <p>题库页只负责选题；进入练习后页面会切到单题工作台。</p>
+          <h1>5天冲刺，自测高频考点</h1>
+          <p>默认只显示冲刺推荐题；模板加练题保留备用，但不会再挡住真正该练的内容。</p>
         </div>
         <div className="summaryStrip">
           <div>
-            <span>{summary.completed_count}</span>
-            <small>已通过</small>
+            <span>{summary.sprint_count || 0}</span>
+            <small>冲刺题</small>
           </div>
           <div>
-            <span>{summary.task_count}</span>
-            <small>总任务</small>
+            <span>{summary.recommended_count || 0}</span>
+            <small>推荐题</small>
           </div>
           <div>
             <span>{summary.wrong_note_count}</span>
@@ -257,6 +281,24 @@ function LibraryView({ days, summary, selectedDay, setSelectedDay, onEnterTask }
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索当前 Day 的题" />
           </label>
         </div>
+        <div className="scopeFilters" aria-label="题库质量筛选">
+          {[
+            ["recommended", "冲刺推荐", tierCounts.recommended],
+            ["sprint", "只看冲刺", tierCounts.sprint],
+            ["core", "核心题", tierCounts.core],
+            ["drill", "模板加练", tierCounts.drill],
+            ["all", "全部", tierCounts.all],
+          ].map(([value, label, count]) => (
+            <button
+              key={value}
+              className={scopeFilter === value ? "scopeFilter active" : "scopeFilter"}
+              onClick={() => setScopeFilter(value)}
+            >
+              {label}
+              <span>{count}</span>
+            </button>
+          ))}
+        </div>
         <div className="statusFilters" aria-label="题目状态筛选">
           {[
             ["all", "全部", statusCounts.all],
@@ -275,7 +317,9 @@ function LibraryView({ days, summary, selectedDay, setSelectedDay, onEnterTask }
           ))}
         </div>
         <div className="taskGrid">
-          {tasks.map((task) => (
+          {tasks.length === 0 ? (
+            <div className="emptyState">当前筛选没有题目，换一个层级或状态试试。</div>
+          ) : tasks.map((task) => (
             <article
               className={
                 task.passed
@@ -287,10 +331,21 @@ function LibraryView({ days, summary, selectedDay, setSelectedDay, onEnterTask }
               key={task.id}
             >
               <div className="taskCardTop">
-                <span className={task.mode === "sql" ? "modeBadge sql" : "modeBadge py"}>{task.mode.toUpperCase()}</span>
+                <div className="taskBadges">
+                  <span className={task.mode === "sql" ? "modeBadge sql" : "modeBadge py"}>{task.mode.toUpperCase()}</span>
+                  <span className={`tierBadge ${task.tier}`}>{tierLabels[task.tier] || task.tier}</span>
+                  <span className="difficultyBadge">{task.difficulty}</span>
+                </div>
                 <StatusBadge task={task} />
               </div>
               <h3>{task.title}</h3>
+              {task.tags?.length > 0 && (
+                <div className="tagList">
+                  {task.tags.slice(0, 3).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              )}
               <p>
                 {task.timebox_minutes} 分钟
                 {task.attempts > 0 && !task.passed ? ` · 已尝试 ${task.attempts} 次` : ""}
@@ -376,6 +431,11 @@ function PracticeView({
             <span>{task.mode.toUpperCase()}</span>
             <span>Day {task.day}</span>
             <span>{task.timebox_minutes} min</span>
+            <span>{tierLabels[task.tier] || task.tier}</span>
+            <span>{task.difficulty}</span>
+            {(task.tags || []).slice(0, 3).map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
           </div>
           <h1>{task.title}</h1>
         </div>

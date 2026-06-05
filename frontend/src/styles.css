@@ -235,13 +235,22 @@ p {
   margin-bottom: 16px;
 }
 
+.scopeFilters,
 .statusFilters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.scopeFilters {
+  margin-bottom: 10px;
+}
+
+.statusFilters {
   margin-bottom: 14px;
 }
 
+.scopeFilter,
 .statusFilter {
   display: inline-flex;
   align-items: center;
@@ -255,6 +264,13 @@ p {
   cursor: pointer;
 }
 
+.scopeFilter {
+  color: #26394c;
+  background: #eef6f2;
+  border: 1px solid #c9ded2;
+}
+
+.scopeFilter span,
 .statusFilter span {
   min-width: 24px;
   padding: 2px 6px;
@@ -265,12 +281,14 @@ p {
   font-weight: 800;
 }
 
+.scopeFilter.active,
 .statusFilter.active {
   color: #ffffff;
   background: #215c83;
   border-color: #215c83;
 }
 
+.scopeFilter.active span,
 .statusFilter.active span {
   color: #215c83;
 }
@@ -313,6 +331,10 @@ p {
   gap: 12px;
 }
 
+.taskGrid > .emptyState {
+  grid-column: 1 / -1;
+}
+
 .taskCard {
   display: flex;
   flex-direction: column;
@@ -343,10 +365,18 @@ p {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
+}
+
+.taskBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .modeBadge,
+.tierBadge,
+.difficultyBadge,
 .statusBadge {
   display: inline-flex;
   align-items: center;
@@ -356,6 +386,26 @@ p {
   border-radius: 6px;
   font-size: 12px;
   font-weight: 800;
+}
+
+.tierBadge.sprint {
+  color: #ffffff;
+  background: #8a4f13;
+}
+
+.tierBadge.core {
+  color: #1f704e;
+  background: #dff2e7;
+}
+
+.tierBadge.drill {
+  color: #5c6876;
+  background: #edf1f5;
+}
+
+.difficultyBadge {
+  color: #344255;
+  background: #f0eadf;
 }
 
 .modeBadge.sql {
@@ -387,6 +437,22 @@ p {
   margin-top: 13px;
   font-size: 16px;
   line-height: 1.35;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.tagList span {
+  padding: 3px 7px;
+  color: #465464;
+  background: #eef2f5;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .taskCard p {

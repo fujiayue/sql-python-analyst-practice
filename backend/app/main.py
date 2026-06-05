@@ -43,6 +43,7 @@ def health() -> dict[str, str]:
 def days() -> dict[str, object]:
     progress = get_progress_map()
     tasks = list_tasks()
+    task_meta = {task.id: task.public_dict() for task in tasks}
     day_payload = []
     for day_num, meta in DAY_META.items():
         day_tasks = [task for task in tasks if task.day == day_num]
@@ -60,6 +61,10 @@ def days() -> dict[str, object]:
                         "title": task.title,
                         "mode": task.mode,
                         "timebox_minutes": task.timebox_minutes,
+                        "tier": task_meta[task.id]["tier"],
+                        "difficulty": task_meta[task.id]["difficulty"],
+                        "tags": task_meta[task.id]["tags"],
+                        "is_generated": task_meta[task.id]["is_generated"],
                         "passed": progress.get(task.id, {}).get("passed") == 1,
                         "attempts": progress.get(task.id, {}).get("attempts", 0),
                     }
@@ -73,6 +78,9 @@ def days() -> dict[str, object]:
         "summary": {
             "task_count": len(tasks),
             "completed_count": total_completed,
+            "sprint_count": sum(1 for meta in task_meta.values() if meta["tier"] == "sprint"),
+            "recommended_count": sum(1 for meta in task_meta.values() if meta["tier"] in {"sprint", "core"}),
+            "drill_count": sum(1 for meta in task_meta.values() if meta["tier"] == "drill"),
             "wrong_note_count": wrong_note_count(),
         },
     }
@@ -134,4 +142,3 @@ def mark_reviewed(note_id: int) -> dict[str, object]:
     if not mark_wrong_note_reviewed(note_id):
         raise HTTPException(status_code=404, detail="Wrong note not found")
     return {"ok": True}
-

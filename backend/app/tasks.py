@@ -16,11 +16,19 @@ class TaskSpec:
     sort_by: tuple[str, ...] = ()
     mysql_tip: str = ""
     timebox_minutes: int = 20
+    tier: str = "core"
+    difficulty: str = "基础"
+    tags: tuple[str, ...] = ()
 
     def public_dict(self) -> dict[str, object]:
         data = asdict(self)
+        is_generated = "_gen_" in self.id
+        if is_generated and self.tier == "core":
+            data["tier"] = "drill"
         data["datasets"] = list(self.datasets)
         data["sort_by"] = list(self.sort_by)
+        data["tags"] = list(self.tags)
+        data["is_generated"] = is_generated
         return data
 
 
@@ -46,6 +54,9 @@ def sql_task(
     datasets: tuple[str, ...] = ("tickets",),
     mysql_tip: str = "",
     timebox_minutes: int = 15,
+    tier: str = "core",
+    difficulty: str = "基础",
+    tags: tuple[str, ...] = (),
 ) -> TaskSpec:
     return TaskSpec(
         id=task_id,
@@ -59,6 +70,9 @@ def sql_task(
         sort_by=sort_by,
         mysql_tip=mysql_tip,
         timebox_minutes=timebox_minutes,
+        tier=tier,
+        difficulty=difficulty,
+        tags=tags,
     )
 
 
@@ -73,6 +87,9 @@ def python_task(
     sort_by: tuple[str, ...] = (),
     datasets: tuple[str, ...] = ("tickets",),
     timebox_minutes: int = 25,
+    tier: str = "core",
+    difficulty: str = "基础",
+    tags: tuple[str, ...] = (),
 ) -> TaskSpec:
     return TaskSpec(
         id=task_id,
@@ -86,6 +103,9 @@ def python_task(
         starter_code=textwrap.dedent(starter_code).strip(),
         sort_by=sort_by,
         timebox_minutes=timebox_minutes,
+        tier=tier,
+        difficulty=difficulty,
+        tags=tags,
     )
 
 
@@ -96,6 +116,14 @@ PY_STARTER = """import pandas as pd
 
 def solve(df: pd.DataFrame) -> pd.DataFrame:
     # 返回一个 pandas DataFrame
+    return df.head()
+"""
+
+PY_TWO_TABLE_STARTER = """import pandas as pd
+
+
+def solve(df: pd.DataFrame, dim: pd.DataFrame) -> pd.DataFrame:
+    # 第二个参数是题目说明里的维表
     return df.head()
 """
 
@@ -1090,6 +1118,562 @@ TASKS: list[TaskSpec] = [
 ]
 
 
+def _add_sprint_tasks() -> None:
+    """Add hand-written, non-template tasks for the five-day sprint view."""
+    TASKS.extend(
+        [
+            sql_task(
+                "d1_sprint_sql_01_closed_denominator_kpi",
+                1,
+                "冲刺：团队 KPI 分母口径",
+                "训练把总量、关闭量、SLA 分母和积压量拆开，避免口径混在一起。",
+                "按 team 输出 total_cnt、closed_cnt、closed_sla_rate、backlog_cnt。SLA 只以 Closed 工单为分母，保留 4 位小数。",
+                """
+                SELECT
+                    team,
+                    COUNT(*) AS total_cnt,
+                    SUM(CASE WHEN status = 'Closed' THEN 1 ELSE 0 END) AS closed_cnt,
+                    ROUND(
+                        SUM(CASE WHEN status = 'Closed' AND process_hours <= sla_hours THEN 1.0 ELSE 0.0 END)
+                        / NULLIF(SUM(CASE WHEN status = 'Closed' THEN 1.0 ELSE 0.0 END), 0),
+                        4
+                    ) AS closed_sla_rate,
+                    SUM(CASE WHEN status = 'Backlog' THEN 1 ELSE 0 END) AS backlog_cnt
+                FROM tickets
+                GROUP BY team
+                ORDER BY team
+                """,
+                ("team",),
+                timebox_minutes=20,
+                tier="sprint",
+                difficulty="核心",
+                tags=("分母口径", "SLA", "积压"),
+            ),
+            sql_task(
+                "d1_sprint_sql_02_high_priority_sla_gap",
+                1,
+                "冲刺：高优先级 SLA 缺口",
+                "训练用业务风险视角筛选高优先级工单。",
+                "只看 High 且 Closed 的工单，按 team 输出 high_closed_cnt、avg_process_hours、avg_sla_gap_hours。gap=process_hours-sla_hours，保留 2 位，按 gap 降序。",
+                """
+                SELECT
+                    team,
+                    COUNT(*) AS high_closed_cnt,
+                    ROUND(AVG(process_hours), 2) AS avg_process_hours,
+                    ROUND(AVG(process_hours - sla_hours), 2) AS avg_sla_gap_hours
+                FROM tickets
+                WHERE priority = 'High' AND status = 'Closed'
+                GROUP BY team
+                ORDER BY avg_sla_gap_hours DESC, team
+                """,
+                ("avg_sla_gap_hours", "team"),
+                timebox_minutes=18,
+                tier="sprint",
+                difficulty="核心",
+                tags=("高优先级", "SLA", "风险排序"),
+            ),
+            sql_task(
+                "d1_sprint_sql_03_month_type_structure",
+                1,
+                "冲刺：月度任务结构占比",
+                "训练月度结构分析，不只是统计总量。",
+                "按 month、task_type 输出 ticket_cnt、month_share。month_share 为该任务类型占当月全部工单比例，保留 4 位。",
+                """
+                WITH base AS (
+                    SELECT
+                        strftime(create_time, '%Y-%m') AS month,
+                        task_type,
+                        COUNT(*) AS ticket_cnt
+                    FROM tickets
+                    GROUP BY month, task_type
+                ),
+                monthly AS (
+                    SELECT month, SUM(ticket_cnt) AS month_total
+                    FROM base
+                    GROUP BY month
+                )
+                SELECT
+                    b.month,
+                    b.task_type,
+                    b.ticket_cnt,
+                    ROUND(b.ticket_cnt * 1.0 / m.month_total, 4) AS month_share
+                FROM base b
+                JOIN monthly m ON b.month = m.month
+                ORDER BY b.month, b.task_type
+                """,
+                ("month", "task_type"),
+                mysql_tip="MySQL 可用 DATE_FORMAT(create_time, '%Y-%m')。",
+                timebox_minutes=22,
+                tier="sprint",
+                difficulty="核心",
+                tags=("结构占比", "月度分析", "分母口径"),
+            ),
+            sql_task(
+                "d2_sprint_sql_01_join_row_count_guard",
+                2,
+                "冲刺：JOIN 后行数校验",
+                "训练每次连接维表后先确认是否重复计数。",
+                "连接 assignee_dim 前后做行数校验，输出 check_name、before_rows、after_rows、row_diff。",
+                """
+                WITH before_join AS (
+                    SELECT COUNT(*) AS before_rows
+                    FROM tickets
+                ),
+                after_join AS (
+                    SELECT COUNT(*) AS after_rows
+                    FROM tickets t
+                    LEFT JOIN assignee_dim a ON t.assignee = a.assignee
+                )
+                SELECT
+                    'tickets_to_assignee_dim' AS check_name,
+                    before_rows,
+                    after_rows,
+                    after_rows - before_rows AS row_diff
+                FROM before_join
+                CROSS JOIN after_join
+                """,
+                ("check_name",),
+                datasets=("tickets", "assignee_dim"),
+                timebox_minutes=15,
+                tier="sprint",
+                difficulty="核心",
+                tags=("JOIN", "重复计数", "校验"),
+            ),
+            sql_task(
+                "d2_sprint_sql_02_worst_month_each_team",
+                2,
+                "冲刺：每团队最差 SLA 月份",
+                "训练窗口函数把异常月份定位出来。",
+                "只看 Closed 工单，按团队找 SLA 达成率最低的月份，输出 team、month、closed_cnt、sla_rate。",
+                """
+                WITH monthly AS (
+                    SELECT
+                        team,
+                        strftime(create_time, '%Y-%m') AS month,
+                        COUNT(*) AS closed_cnt,
+                        ROUND(AVG(CASE WHEN process_hours <= sla_hours THEN 1.0 ELSE 0.0 END), 4) AS sla_rate
+                    FROM tickets
+                    WHERE status = 'Closed'
+                    GROUP BY team, month
+                ),
+                ranked AS (
+                    SELECT
+                        team,
+                        month,
+                        closed_cnt,
+                        sla_rate,
+                        ROW_NUMBER() OVER (PARTITION BY team ORDER BY sla_rate, closed_cnt DESC, month) AS rn
+                    FROM monthly
+                )
+                SELECT team, month, closed_cnt, sla_rate
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY team
+                """,
+                ("team",),
+                timebox_minutes=25,
+                tier="sprint",
+                difficulty="进阶",
+                tags=("窗口函数", "异常定位", "SLA"),
+            ),
+            sql_task(
+                "d2_sprint_sql_03_team_sla_mom_drop",
+                2,
+                "冲刺：团队 SLA 环比下滑",
+                "训练 LAG 和环比变化，用来解释趋势恶化。",
+                "只看 Closed 工单，按 month、team 输出 sla_rate、prev_sla_rate、sla_rate_change，保留 4 位。",
+                """
+                WITH monthly AS (
+                    SELECT
+                        strftime(create_time, '%Y-%m') AS month,
+                        team,
+                        ROUND(AVG(CASE WHEN process_hours <= sla_hours THEN 1.0 ELSE 0.0 END), 4) AS sla_rate
+                    FROM tickets
+                    WHERE status = 'Closed'
+                    GROUP BY month, team
+                )
+                SELECT
+                    month,
+                    team,
+                    sla_rate,
+                    LAG(sla_rate) OVER (PARTITION BY team ORDER BY month) AS prev_sla_rate,
+                    ROUND(sla_rate - LAG(sla_rate) OVER (PARTITION BY team ORDER BY month), 4) AS sla_rate_change
+                FROM monthly
+                ORDER BY month, team
+                """,
+                ("month", "team"),
+                mysql_tip="MySQL 同样支持 LAG(...) OVER(PARTITION BY ... ORDER BY ...)。",
+                timebox_minutes=25,
+                tier="sprint",
+                difficulty="进阶",
+                tags=("LAG", "环比", "SLA"),
+            ),
+            python_task(
+                "d3_sprint_py_01_dirty_issue_counts",
+                3,
+                "冲刺：脏数据问题计数",
+                "训练先查质量再算指标。",
+                "实现 solve(df)，输入 tickets_dirty，返回 issue_type、issue_cnt。至少检查 duplicate_ticket_id、missing_assignee、missing_create_time、negative_process_hours、close_before_create、invalid_status、invalid_priority。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    checks = {
+                        "duplicate_ticket_id": df["ticket_id"].duplicated(keep=False),
+                        "missing_assignee": df["assignee"].isna(),
+                        "missing_create_time": df["create_time"].isna(),
+                        "negative_process_hours": df["process_hours"] < 0,
+                        "close_before_create": df["close_time"].notna() & (df["close_time"] < df["create_time"]),
+                        "invalid_status": ~df["status"].isin(["Closed", "Open", "Backlog"]),
+                        "invalid_priority": ~df["priority"].isin(["Low", "Medium", "High"]),
+                    }
+                    out = pd.DataFrame(
+                        {"issue_type": name, "issue_cnt": int(mask.sum())}
+                        for name, mask in checks.items()
+                    )
+                    return out.sort_values("issue_type").reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("issue_type",),
+                datasets=("tickets_dirty",),
+                timebox_minutes=25,
+                tier="sprint",
+                difficulty="核心",
+                tags=("数据质量", "空值", "异常值"),
+            ),
+            python_task(
+                "d3_sprint_py_02_clean_monthly_kpi",
+                3,
+                "冲刺：清洗后月度 KPI",
+                "训练把清洗动作和指标计算串起来。",
+                "实现 solve(df)，输入 tickets_dirty：先按 ticket_id 去重，剔除 create_time 缺失、负处理时长、close_time 早于 create_time、非法 status/priority；再只看 Closed，按月输出 closed_cnt、sla_rate、avg_process_hours。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    clean = df.drop_duplicates("ticket_id").copy()
+                    valid = (
+                        clean["create_time"].notna()
+                        & (clean["process_hours"] >= 0)
+                        & (clean["status"].isin(["Closed", "Open", "Backlog"]))
+                        & (clean["priority"].isin(["Low", "Medium", "High"]))
+                        & (clean["close_time"].isna() | (clean["close_time"] >= clean["create_time"]))
+                    )
+                    clean = clean[valid].copy()
+                    closed = clean[clean["status"] == "Closed"].copy()
+                    closed["month"] = closed["create_time"].dt.strftime("%Y-%m")
+                    closed["sla_hit"] = closed["process_hours"] <= closed["sla_hours"]
+                    out = (
+                        closed.groupby("month")
+                        .agg(
+                            closed_cnt=("ticket_id", "count"),
+                            sla_rate=("sla_hit", "mean"),
+                            avg_process_hours=("process_hours", "mean"),
+                        )
+                        .reset_index()
+                    )
+                    out["sla_rate"] = out["sla_rate"].round(4)
+                    out["avg_process_hours"] = out["avg_process_hours"].round(2)
+                    return out.sort_values("month").reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("month",),
+                datasets=("tickets_dirty",),
+                timebox_minutes=35,
+                tier="sprint",
+                difficulty="进阶",
+                tags=("清洗流程", "月度指标", "SLA"),
+            ),
+            python_task(
+                "d4_sprint_py_01_category_kpi_after_merge",
+                4,
+                "冲刺：merge 后类别 KPI",
+                "训练 pandas merge 后按业务类别汇总。",
+                "实现 solve(df, dim)，连接 task_dim，按 category 输出 closed_cnt、sla_rate、rework_rate、avg_complexity。只看 Closed 工单，比例保留 4 位，复杂度保留 2 位。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame, dim: pd.DataFrame) -> pd.DataFrame:
+                    merged = df.merge(dim, on="task_type", how="left")
+                    closed = merged[merged["status"] == "Closed"].copy()
+                    closed["sla_hit"] = closed["process_hours"] <= closed["sla_hours"]
+                    out = (
+                        closed.groupby("category")
+                        .agg(
+                            closed_cnt=("ticket_id", "count"),
+                            sla_rate=("sla_hit", "mean"),
+                            rework_rate=("is_rework", "mean"),
+                            avg_complexity=("complexity", "mean"),
+                        )
+                        .reset_index()
+                    )
+                    out["sla_rate"] = out["sla_rate"].round(4)
+                    out["rework_rate"] = out["rework_rate"].round(4)
+                    out["avg_complexity"] = out["avg_complexity"].round(2)
+                    return out.sort_values("category").reset_index(drop=True)
+                """,
+                PY_TWO_TABLE_STARTER,
+                ("category",),
+                datasets=("tickets", "task_dim"),
+                timebox_minutes=30,
+                tier="sprint",
+                difficulty="核心",
+                tags=("merge", "维表", "业务类别"),
+            ),
+            python_task(
+                "d4_sprint_py_02_assignee_load_risk",
+                4,
+                "冲刺：人员负载风险",
+                "训练从人员维度识别可能的容量风险。",
+                "实现 solve(df)，只看 Closed 工单，按 team、assignee 输出 closed_cnt、high_share、avg_process_hours、rework_rate。比例保留 4 位，时长保留 2 位，按 team、closed_cnt 降序。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    closed = df[df["status"] == "Closed"].copy()
+                    closed["is_high"] = closed["priority"] == "High"
+                    out = (
+                        closed.groupby(["team", "assignee"])
+                        .agg(
+                            closed_cnt=("ticket_id", "count"),
+                            high_share=("is_high", "mean"),
+                            avg_process_hours=("process_hours", "mean"),
+                            rework_rate=("is_rework", "mean"),
+                        )
+                        .reset_index()
+                    )
+                    out["high_share"] = out["high_share"].round(4)
+                    out["avg_process_hours"] = out["avg_process_hours"].round(2)
+                    out["rework_rate"] = out["rework_rate"].round(4)
+                    return out.sort_values(["team", "closed_cnt", "assignee"], ascending=[True, False, True]).reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("team", "closed_cnt", "assignee"),
+                timebox_minutes=30,
+                tier="sprint",
+                difficulty="核心",
+                tags=("人员负载", "排序", "风险识别"),
+            ),
+            python_task(
+                "d4_sprint_py_03_monthly_team_spike",
+                4,
+                "冲刺：月度团队业务量异常",
+                "训练用历史均值和标准差找异常月份。",
+                "实现 solve(df)，按 month、team 统计 ticket_cnt，并计算 team 内 mean_cnt、std_cnt、is_spike。is_spike 为 ticket_cnt > mean_cnt + std_cnt。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    work = df.copy()
+                    work["month"] = work["create_time"].dt.strftime("%Y-%m")
+                    monthly = work.groupby(["month", "team"]).size().reset_index(name="ticket_cnt")
+                    stats = monthly.groupby("team")["ticket_cnt"].agg(mean_cnt="mean", std_cnt="std").reset_index()
+                    out = monthly.merge(stats, on="team", how="left")
+                    out["std_cnt"] = out["std_cnt"].fillna(0)
+                    out["mean_cnt"] = out["mean_cnt"].round(2)
+                    out["std_cnt"] = out["std_cnt"].round(2)
+                    out["is_spike"] = out["ticket_cnt"] > (out["mean_cnt"] + out["std_cnt"])
+                    return out.sort_values(["month", "team"]).reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("month", "team"),
+                timebox_minutes=35,
+                tier="sprint",
+                difficulty="进阶",
+                tags=("异常检测", "rolling思维", "月度趋势"),
+            ),
+            sql_task(
+                "d5_sprint_sql_01_root_cause_team_type",
+                5,
+                "冲刺：SLA 根因拆解到任务类型",
+                "训练把团队问题继续拆到任务类型，而不是停在总指标。",
+                "只看 Closed 工单，按 team、task_type 输出 closed_cnt、sla_rate、avg_process_hours、rework_rate，按 sla_rate 升序、closed_cnt 降序。",
+                """
+                SELECT
+                    team,
+                    task_type,
+                    COUNT(*) AS closed_cnt,
+                    ROUND(AVG(CASE WHEN process_hours <= sla_hours THEN 1.0 ELSE 0.0 END), 4) AS sla_rate,
+                    ROUND(AVG(process_hours), 2) AS avg_process_hours,
+                    ROUND(AVG(CASE WHEN is_rework THEN 1.0 ELSE 0.0 END), 4) AS rework_rate
+                FROM tickets
+                WHERE status = 'Closed'
+                GROUP BY team, task_type
+                ORDER BY sla_rate, closed_cnt DESC, team, task_type
+                """,
+                ("sla_rate", "closed_cnt", "team", "task_type"),
+                timebox_minutes=30,
+                tier="sprint",
+                difficulty="核心",
+                tags=("根因拆解", "SLA", "返工"),
+            ),
+            python_task(
+                "d5_sprint_py_01_ops_risk_score",
+                5,
+                "冲刺：团队运营风险分",
+                "训练把多个指标合成一个可排序的运营风险视图。",
+                "实现 solve(df)，按 team 输出 ticket_cnt、closed_cnt、sla_rate、backlog_cnt、rework_rate、risk_score。risk_score=(1-sla_rate)*50 + rework_rate*30 + backlog_cnt/ticket_cnt*20，保留 2 位。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    work = df.copy()
+                    work["is_closed"] = work["status"] == "Closed"
+                    work["is_backlog"] = work["status"] == "Backlog"
+                    work["sla_hit"] = work["is_closed"] & (work["process_hours"] <= work["sla_hours"])
+                    out = (
+                        work.groupby("team")
+                        .agg(
+                            ticket_cnt=("ticket_id", "count"),
+                            closed_cnt=("is_closed", "sum"),
+                            sla_hit_cnt=("sla_hit", "sum"),
+                            backlog_cnt=("is_backlog", "sum"),
+                            rework_rate=("is_rework", "mean"),
+                        )
+                        .reset_index()
+                    )
+                    out["sla_rate"] = (out["sla_hit_cnt"] / out["closed_cnt"]).round(4)
+                    out["rework_rate"] = out["rework_rate"].round(4)
+                    out["risk_score"] = (
+                        (1 - out["sla_rate"]) * 50
+                        + out["rework_rate"] * 30
+                        + (out["backlog_cnt"] / out["ticket_cnt"]) * 20
+                    ).round(2)
+                    out = out.drop(columns=["sla_hit_cnt"])
+                    return out[["team", "ticket_cnt", "closed_cnt", "sla_rate", "backlog_cnt", "rework_rate", "risk_score"]].sort_values(
+                        ["risk_score", "team"], ascending=[False, True]
+                    ).reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("risk_score", "team"),
+                timebox_minutes=40,
+                tier="sprint",
+                difficulty="进阶",
+                tags=("综合KPI", "风险评分", "业务建议"),
+            ),
+            sql_task(
+                "d6_sprint_sql_01_dirty_issue_counts",
+                6,
+                "冲刺：SQL 数据质量清单",
+                "训练用 SQL 快速给出质量问题分布。",
+                "基于 tickets_dirty 输出 issue_type、issue_cnt，检查重复主键、缺失字段、日期异常、负时长、非法枚举。",
+                """
+                SELECT 'duplicate_ticket_id' AS issue_type, COUNT(*) AS issue_cnt
+                FROM tickets_dirty
+                WHERE ticket_id IN (
+                    SELECT ticket_id
+                    FROM tickets_dirty
+                    GROUP BY ticket_id
+                    HAVING COUNT(*) > 1
+                )
+                UNION ALL
+                SELECT 'missing_assignee', COUNT(*) FROM tickets_dirty WHERE assignee IS NULL
+                UNION ALL
+                SELECT 'missing_create_time', COUNT(*) FROM tickets_dirty WHERE create_time IS NULL
+                UNION ALL
+                SELECT 'negative_process_hours', COUNT(*) FROM tickets_dirty WHERE process_hours < 0
+                UNION ALL
+                SELECT 'close_before_create', COUNT(*) FROM tickets_dirty WHERE close_time < create_time
+                UNION ALL
+                SELECT 'invalid_status', COUNT(*) FROM tickets_dirty WHERE status NOT IN ('Closed', 'Open', 'Backlog')
+                UNION ALL
+                SELECT 'invalid_priority', COUNT(*) FROM tickets_dirty WHERE priority NOT IN ('Low', 'Medium', 'High')
+                ORDER BY issue_type
+                """,
+                ("issue_type",),
+                datasets=("tickets_dirty",),
+                timebox_minutes=25,
+                tier="sprint",
+                difficulty="核心",
+                tags=("数据质量", "SQL排查", "枚举异常"),
+            ),
+            sql_task(
+                "d7_sprint_sql_01_mock_exam_team_month",
+                7,
+                "冲刺模拟：团队月度异常定位",
+                "完成一次接近机考的指标计算，结论区写发现、原因假设和建议。",
+                "只看 Closed 工单，按 month、team 输出 closed_cnt、sla_rate、avg_process_hours、rework_rate、mom_closed_change。最后在业务结论区解释最值得关注的团队月份。",
+                """
+                WITH monthly AS (
+                    SELECT
+                        strftime(create_time, '%Y-%m') AS month,
+                        team,
+                        COUNT(*) AS closed_cnt,
+                        ROUND(AVG(CASE WHEN process_hours <= sla_hours THEN 1.0 ELSE 0.0 END), 4) AS sla_rate,
+                        ROUND(AVG(process_hours), 2) AS avg_process_hours,
+                        ROUND(AVG(CASE WHEN is_rework THEN 1.0 ELSE 0.0 END), 4) AS rework_rate
+                    FROM tickets
+                    WHERE status = 'Closed'
+                    GROUP BY month, team
+                )
+                SELECT
+                    month,
+                    team,
+                    closed_cnt,
+                    sla_rate,
+                    avg_process_hours,
+                    rework_rate,
+                    closed_cnt - LAG(closed_cnt) OVER (PARTITION BY team ORDER BY month) AS mom_closed_change
+                FROM monthly
+                ORDER BY month, team
+                """,
+                ("month", "team"),
+                timebox_minutes=60,
+                tier="sprint",
+                difficulty="模拟",
+                tags=("限时模拟", "环比", "业务结论"),
+            ),
+            python_task(
+                "d7_sprint_py_01_mock_exam_ops_case",
+                7,
+                "冲刺模拟：Python 运营效率小报告",
+                "用 pandas 完成一次从清洗到 KPI 输出的限时模拟。",
+                "实现 solve(df)，输出 team、ticket_cnt、closed_cnt、sla_rate、avg_process_hours、backlog_cnt、rework_rate。请在结论区写三句话：发现、原因假设、建议。",
+                """
+                import pandas as pd
+
+
+                def solve(df: pd.DataFrame) -> pd.DataFrame:
+                    work = df.drop_duplicates("ticket_id").copy()
+                    work["is_closed"] = work["status"] == "Closed"
+                    work["is_backlog"] = work["status"] == "Backlog"
+                    closed = work[work["is_closed"]].copy()
+                    closed["sla_hit"] = closed["process_hours"] <= closed["sla_hours"]
+                    base = work.groupby("team").agg(
+                        ticket_cnt=("ticket_id", "count"),
+                        backlog_cnt=("is_backlog", "sum"),
+                        rework_rate=("is_rework", "mean"),
+                    )
+                    closed_kpi = closed.groupby("team").agg(
+                        closed_cnt=("ticket_id", "count"),
+                        sla_rate=("sla_hit", "mean"),
+                        avg_process_hours=("process_hours", "mean"),
+                    )
+                    out = base.join(closed_kpi, how="left").reset_index()
+                    out["sla_rate"] = out["sla_rate"].round(4)
+                    out["avg_process_hours"] = out["avg_process_hours"].round(2)
+                    out["rework_rate"] = out["rework_rate"].round(4)
+                    return out[["team", "ticket_cnt", "closed_cnt", "sla_rate", "avg_process_hours", "backlog_cnt", "rework_rate"]].sort_values(
+                        "team"
+                    ).reset_index(drop=True)
+                """,
+                PY_STARTER,
+                ("team",),
+                timebox_minutes=60,
+                tier="sprint",
+                difficulty="模拟",
+                tags=("限时模拟", "pandas", "综合KPI"),
+            ),
+        ]
+    )
+
+
 def _add_generated_tasks() -> None:
     group_labels = {
         "team": "团队",
@@ -1800,6 +2384,7 @@ def _add_generated_tasks() -> None:
         )
 
 
+_add_sprint_tasks()
 _add_generated_tasks()
 
 
